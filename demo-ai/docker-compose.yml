@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8010:8010"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      KB_DIR: /app/kb
+      DB_PATH: /app/data/leads.sqlite3
+    volumes:
+      - ./kb:/app/kb:ro
+      - leads:/app/data
+    # При run app pytest зависимости не запускаются и сеть не нужна.
+    # Для демо запускайте compose up --build (все три сервиса).
+  ollama:
+    image: ollama/ollama:0.5.7
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  ollama-init:
+    image: ollama/ollama:0.5.7
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['ollama pull "$${MODEL}"']
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    restart: "no"
+volumes:
+  leads:
+  ollama:

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Заявка: {{ equipment.name }}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f3f5f8; margin: 0; color: #1d2733; }
+    .card { max-width: 420px; margin: 32px auto; background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .muted { color: #6b7785; font-size: 14px; margin: 0 0 16px; }
+    dl { margin: 0 0 20px; } dt { font-size: 12px; color: #6b7785; margin-top: 10px; } dd { margin: 2px 0 0; font-weight: 600; }
+    a.btn { display: block; text-align: center; padding: 14px; border-radius: 12px; color: #fff; text-decoration: none; font-weight: 600; margin-top: 10px; }
+    .tg { background: #2aabee; } .max { background: #5b3ef5; }
+    .code { font-family: ui-monospace, monospace; letter-spacing: 2px; }
+    .note { font-size: 13px; color: #6b7785; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Сообщить о неисправности</h1>
+    <p class="muted">{{ equipment.site.company.name }}</p>
+    <dl>
+      <dt>Объект</dt><dd>{{ equipment.site.name }}{% if equipment.site.address %}, {{ equipment.site.address }}{% endif %}</dd>
+      <dt>Оборудование</dt><dd>{{ equipment.name }}</dd>
+      <dt>Код</dt><dd class="code">{{ equipment.code }}</dd>
+    </dl>
+    {% if telegram_url %}<a class="btn tg" href="{{ telegram_url }}">Открыть в Telegram</a>{% endif %}
+    {% if max_url %}<a class="btn max" href="{{ max_url }}">Открыть в MAX</a>{% endif %}
+    {% if not telegram_url and not max_url %}
+      <p class="note">Бот ещё не подключён. Позвоните диспетчеру{% if equipment.site.company.phone %}: {{ equipment.site.company.phone }}{% endif %} и назовите код.</p>
+    {% else %}
+      <p class="note">Бот уже будет знать, о каком оборудовании речь, — останется описать проблему и прислать фото.</p>
+    {% endif %}
+  </div>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Монтаж-Сервис — AI-консультант</title>
+<style>
+body{font:16px system-ui,sans-serif;background:#f1f5f9;color:#172334;margin:0}main{max-width:800px;margin:32px auto;padding:24px;background:white;border-radius:16px}h1{font-size:26px}#chat{min-height:180px;max-height:480px;overflow:auto}.message{white-space:pre-wrap;padding:14px;margin:12px 0;background:#eef3f7;border-radius:8px}.user{background:#deedff}input,button{font:inherit;padding:12px;border:1px solid #9aa8b7;border-radius:6px}input[type=text],input[type=tel]{box-sizing:border-box;width:100%;margin:6px 0}button{background:#163f82;color:white;cursor:pointer;margin:8px 0}button:disabled{opacity:.5}a{color:#184c9c}small{color:#526172}label{display:block;margin:10px 0}#status{white-space:pre-wrap}
+</style>
+<main>
+<h1>Монтаж-Сервис · консультант</h1>
+<p>Видеонаблюдение, домофоны и СКУД. Ответы по базе знаний со ссылками на источники.</p>
+<small>Демонстрация: компания, цены и контакты вымышлены. Не отправляйте реальные персональные данные в публичное демо.</small>
+<div id="chat" role="log" aria-live="polite"></div>
+<form id="question-form"><label for="question">Ваш вопрос</label><input id="question" type="text" maxlength="2000" required placeholder="Какая гарантия на монтаж?"><button>Спросить</button></form>
+<h2>Оставить заявку</h2>
+<form id="lead-form">
+<label for="name">Имя</label><input id="name" type="text" minlength="2" maxlength="100" required autocomplete="given-name">
+<label for="phone">Телефон</label><input id="phone" type="tel" minlength="10" maxlength="30" required autocomplete="tel" placeholder="+7 999 000-00-00">
+<label><input id="consent" type="checkbox" required> Согласен на сохранение имени и телефона для обработки заявки и передачу менеджеру в Telegram, если он подключён.</label>
+<button>Отправить заявку</button><p id="status" role="status"></p>
+</form>
+</main>
+<script>
+const chat=document.getElementById('chat');
+function message(text,kind=''){const node=document.createElement('div');node.className='message '+kind;node.textContent=text;chat.append(node);chat.scrollTop=chat.scrollHeight;return node}
+async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){const data=await r.json().catch(()=>({}));throw Error(typeof data.detail==='string'?data.detail:'Проверьте поля или попробуйте позже.')}return r.json()}
+document.getElementById('question-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.target,button=form.querySelector('button'),input=document.getElementById('question'),question=input.value.trim();if(!question)return;button.disabled=true;message(question,'user');input.value='';try{const data=await post('/api/chat',{question});const node=message(data.answer);for(const source of data.sources){const a=document.createElement('a');a.href=source.url;a.textContent='Источник: '+source.file;node.append(document.createElement('br'),a)}}catch(error){message(error.message)}finally{button.disabled=false}});
+document.getElementById('lead-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.target,button=form.querySelector('button'),status=document.getElementById('status');button.disabled=true;try{const data=await post('/api/leads',{name:document.getElementById('name').value,phone:document.getElementById('phone').value,consent:document.getElementById('consent').checked});status.textContent=data.message+' Номер: '+data.id;form.reset()}catch(error){status.textContent=error.message}finally{button.disabled=false}});
+</script>
+</html>

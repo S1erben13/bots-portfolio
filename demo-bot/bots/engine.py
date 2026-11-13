@@ -60,6 +60,25 @@ def equipment_card(equipment: Equipment) -> str:
 
 class DialogEngine:
     def handle(self, event: IncomingEvent) -> list[Reply]:
+        if event.callback and event.callback.startswith("ds:"):
+            from service.dispatchers import dispatcher_callback, ticket_buttons, ticket_card
+            try:
+                ticket = dispatcher_callback(event.messenger, event.user_id, event.callback)
+            except services.ServiceError as exc:
+                return [Reply(str(exc), callback_answer=str(exc), error=True)]
+            return [Reply(ticket_card(ticket),
+                          [[Button(**b) for b in row] for row in ticket_buttons(ticket)],
+                          edit=True, callback_answer="Статус обновлён")]
+        if re.match(r"^/dispatcher(?:@\w+)?(?:\s|$)", event.text or "", re.IGNORECASE):
+            from service.dispatchers import link_dispatcher
+            parts = (event.text or "").split()
+            if len(parts) != 2:
+                return [Reply("Для привязки отправьте /dispatcher КОД из админки")]
+            try:
+                link_dispatcher(event.messenger, event.user_id, parts[1])
+            except services.ServiceError as exc:
+                return [Reply(str(exc))]
+            return [Reply("Диспетчер привязан. Новые заявки будут приходить сюда.")]
         with transaction.atomic():
             client = services.get_or_create_client(
                 services.ContactInfo(

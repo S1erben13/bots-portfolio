@@ -59,7 +59,7 @@ class MessengerAdapter(abc.ABC):
                 await asyncio.sleep(self.send_interval)
             sent += 1
             try:
-                await self.send(item.user_id, Reply(item.text))
+                await self.send(item.user_id, Reply(item.text, [list(row) for row in item.buttons]))
             except Exception as exc:  # noqa: BLE001 — любую ошибку сети фиксируем в outbox
                 log.warning("[%s] уведомление %s не доставлено: %s", self.messenger, item.id, exc)
                 await sync_to_async(mark_failed)(item.id, str(exc))

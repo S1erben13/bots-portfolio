@@ -19,6 +19,9 @@ class Button:
 class Reply:
     text: str
     buttons: list[list[Button]] = field(default_factory=list)
+    edit: bool = False
+    callback_answer: str = ""
+    error: bool = False
 
 
 @dataclass(frozen=True)

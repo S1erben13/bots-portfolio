@@ -20,6 +20,7 @@ import logging
 from dataclasses import dataclass, replace
 
 import httpx
+from asgiref.sync import sync_to_async
 
 from service.models import Messenger
 
@@ -84,8 +85,11 @@ class MaxApi:
             body["attachments"] = attachments
         return self._check(await self.http.post("/messages", params={"user_id": user_id}, json=body))
 
-    async def answer_callback(self, callback_id: str, notification: str | None = None) -> dict:
+    async def answer_callback(self, callback_id: str, notification: str | None = None,
+                              message: dict | None = None) -> dict:
         body = {"notification": notification} if notification else {}
+        if message is not None:
+            body["message"] = message
         return self._check(
             await self.http.post("/answers", params={"callback_id": callback_id}, json=body)
         )
@@ -161,6 +165,9 @@ def parse_update(update: dict) -> ParsedUpdate | None:
         user = callback.get("user") or {}
         if "user_id" not in user:
             return None
+        recipient = (update.get("message") or {}).get("recipient") or {}
+        if recipient.get("chat_type") not in (None, "dialog"):
+            return None
         return ParsedUpdate(
             IncomingEvent(**_event_base(user), callback=callback.get("payload") or ""),
             callback_id=callback.get("callback_id"),
@@ -198,6 +205,13 @@ class MaxAdapter(MessengerAdapter):
     async def handle_update(self, update: dict) -> None:
         parsed = parse_update(update)
         if parsed is None:
+            return
+        if parsed.event.callback and parsed.event.callback.startswith("ds:"):
+            if not parsed.callback_id:
+                return
+            reply = (await sync_to_async(self.engine.handle)(parsed.event))[0]
+            message = {"text": reply.text, "attachments": keyboard_attachments(reply)} if reply.edit else None
+            await self.api.answer_callback(parsed.callback_id, reply.callback_answer, message=message)
             return
         if parsed.callback_id:
             try:

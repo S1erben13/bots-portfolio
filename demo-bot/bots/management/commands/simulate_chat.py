@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 from bots.adapters.console import ConsoleAdapter, render
 from bots.types import CB_MY_TICKETS, CB_SKIP_PHOTO, IncomingEvent, IncomingPhoto
 from service import services
-from service.models import Equipment, Messenger, Notification, Ticket
+from service.models import Dispatcher, Equipment, Messenger, Notification, Ticket
 
 USER_ID = "demo-user-1"
 
@@ -75,6 +75,18 @@ class Command(BaseCommand):
     # --- режимы ---
 
     def run_script(self, code: str) -> None:
+        equipment = Equipment.objects.select_related("site").get(code=code)
+        dispatcher = Dispatcher.objects.filter(company=equipment.site.company,
+            messenger=Messenger.CONSOLE, is_active=True, user__is_active=True).first()
+        if dispatcher is None:
+            raise CommandError("Нет демо-диспетчера. Сначала: python manage.py seed_demo")
+        if not dispatcher.chat_id:
+            dispatcher.renew_link_code()
+            event = IncomingEvent(messenger=Messenger.CONSOLE, user_id="demo-dispatcher",
+                                  text=f"/dispatcher {dispatcher.link_code}")
+            for reply in asyncio.run(self.adapter.process(event)):
+                self.stdout.write(render(reply))
+            dispatcher.refresh_from_db()
         self.stdout.write(f"Сценарий: клиент сканирует QR с кодом {code}")
         self.say(self.event(start_payload=code))
         self.say(self.event(text="Камера не показывает картинку со вчерашнего вечера"))
@@ -82,9 +94,20 @@ class Command(BaseCommand):
         self.say(self.event(callback=CB_MY_TICKETS))
 
         ticket = Ticket.objects.filter(client__external_id=USER_ID).latest("created_at")
+        self.deliver()
+        from bots.types import Button, Reply
+        for note in ticket.notifications.filter(dispatcher=dispatcher):
+            self.stdout.write("🔔 Диспетчеру: " + render(Reply(note.text,
+                [[Button(**b) for b in row] for row in note.buttons])))
+        self.stdout.write("\n🧑‍💼 Диспетчер нажимает «Принять»")
+        for reply in asyncio.run(self.adapter.process(IncomingEvent(
+                messenger=Messenger.CONSOLE, user_id=dispatcher.chat_id,
+                callback=f"ds:{ticket.pk}:accepted"))):
+            self.stdout.write(render(reply))
+        self.deliver()
         ticket.technician = "Иванов С."
         ticket.save(update_fields=["technician"])
-        for status in (Ticket.Status.ACCEPTED, Ticket.Status.EN_ROUTE, Ticket.Status.DONE):
+        for status in (Ticket.Status.EN_ROUTE, Ticket.Status.DONE):
             self.stdout.write(f"\n🧑‍💼 Диспетчер ставит статус «{Ticket.Status(status).label}»")
             services.change_status(ticket, status)
             self.deliver()

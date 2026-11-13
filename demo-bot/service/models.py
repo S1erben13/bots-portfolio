@@ -4,14 +4,23 @@
 """
 
 import secrets
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 # Алфавит кода без похожих символов (0/O, 1/I/L) — код удобно продиктовать по телефону
 CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 CODE_LENGTH = 6
 
+
+def generate_link_code():
+    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
+
+
+def link_code_deadline():
+    return timezone.now() + timedelta(hours=24)
 
 def generate_equipment_code() -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
@@ -225,6 +234,31 @@ class TicketPhoto(models.Model):
         return f"Фото к заявке №{self.ticket.number}"
 
 
+class Dispatcher(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="dispatchers")
+    messenger = models.CharField("мессенджер", max_length=20, choices=Messenger.choices)
+    chat_id = models.CharField("ID диалога", max_length=64, blank=True)
+    is_active = models.BooleanField("активен", default=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    link_code = models.CharField("код привязки", max_length=8, unique=True, null=True,
+                                 blank=True, default=generate_link_code)
+    link_code_expires_at = models.DateTimeField("код действует до", default=link_code_deadline)
+
+    class Meta:
+        verbose_name = "диспетчер"
+        verbose_name_plural = "диспетчеры"
+        constraints = [models.UniqueConstraint(fields=["messenger", "chat_id"],
+                       condition=~models.Q(chat_id=""), name="uniq_dispatcher_chat")]
+
+    def __str__(self):
+        return f"{self.user} — {self.company} ({self.get_messenger_display()})"
+
+    def renew_link_code(self):
+        self.link_code = generate_link_code()
+        self.link_code_expires_at = link_code_deadline()
+        self.save(update_fields=["link_code", "link_code_expires_at"])
+
+
 class Notification(models.Model):
     """Очередь исходящих уведомлений (outbox).
 
@@ -239,8 +273,12 @@ class Notification(models.Model):
         FAILED = "failed", "Ошибка"
 
     client = models.ForeignKey(
-        Client, verbose_name="клиент", on_delete=models.CASCADE, related_name="notifications"
+        Client, verbose_name="клиент", on_delete=models.CASCADE, related_name="notifications",
+        null=True, blank=True,
     )
+    dispatcher = models.ForeignKey(Dispatcher, on_delete=models.CASCADE, null=True,
+                                   blank=True, related_name="notifications")
+    buttons = models.JSONField(default=list, blank=True)
     ticket = models.ForeignKey(
         Ticket,
         verbose_name="заявка",
@@ -264,5 +302,11 @@ class Notification(models.Model):
         verbose_name_plural = "уведомления клиентам"
         ordering = ["-created_at"]
 
+        constraints = [models.CheckConstraint(
+            condition=(models.Q(client__isnull=False, dispatcher__isnull=True)
+                       | models.Q(client__isnull=True, dispatcher__isnull=False)),
+            name="notification_one_recipient",
+        )]
+
     def __str__(self):
-        return f"{self.client}: {self.text[:40]}"
+        return f"{self.client or self.dispatcher}: {self.text[:40]}"

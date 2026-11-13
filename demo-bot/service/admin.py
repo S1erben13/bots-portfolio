@@ -17,6 +17,7 @@ from .links import qr_link
 from .models import (
     Client,
     Company,
+    Dispatcher,
     Equipment,
     Notification,
     Site,
@@ -203,9 +204,9 @@ class NotificationInline(admin.TabularInline):
     model = Notification
     extra = 0
     can_delete = False
-    fields = ["created_at", "text", "state", "attempts", "sent_at"]
+    fields = ["created_at", "client", "dispatcher", "text", "state", "attempts", "sent_at"]
     readonly_fields = fields
-    verbose_name_plural = "уведомления клиенту"
+    verbose_name_plural = "уведомления"
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -332,10 +333,12 @@ class TicketAdmin(admin.ModelAdmin):
 
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):
-    list_display = ["created_at", "client", "ticket", "short_text", "state", "attempts", "sent_at"]
-    list_filter = ["state", "client__messenger"]
+    list_display = ["created_at", "client", "dispatcher", "ticket", "short_text", "state", "attempts", "sent_at"]
+    list_filter = ["state", "client__messenger", "dispatcher__messenger"]
     readonly_fields = [
         "client",
+        "dispatcher",
+        "buttons",
         "ticket",
         "text",
         "state",
@@ -359,3 +362,17 @@ class NotificationAdmin(admin.ModelAdmin):
             state=Notification.State.PENDING, attempts=0, last_error="", next_attempt_at=None
         )
         self.message_user(request, f"Поставлено в очередь повторно: {count}")
+
+
+@admin.register(Dispatcher)
+class DispatcherAdmin(admin.ModelAdmin):
+    list_display = ["user", "company", "messenger", "chat_id", "is_active", "link_code", "link_code_expires_at"]
+    list_filter = ["company", "messenger", "is_active"]
+    readonly_fields = ["chat_id", "link_code", "link_code_expires_at"]
+    actions = ["renew_codes"]
+
+    @admin.action(description="Выдать новый код привязки на 24 часа")
+    def renew_codes(self, request, queryset):
+        for dispatcher in queryset:
+            dispatcher.renew_link_code()
+        self.message_user(request, "Новые коды привязки созданы")

@@ -11,6 +11,7 @@ from django.utils import timezone
 from service.models import (
     Client,
     Company,
+    Dispatcher,
     Equipment,
     Messenger,
     Site,
@@ -66,6 +67,18 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self._ensure_admin()
         company, created = Company.objects.get_or_create(name=COMPANY["name"], defaults=COMPANY)
+        user, user_created = get_user_model().objects.get_or_create(username="demo-dispatcher")
+        if user_created:
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+        dispatcher, _ = Dispatcher.objects.get_or_create(
+            company=company, messenger=Messenger.CONSOLE, user=user)
+        if not dispatcher.chat_id:
+            if not dispatcher.link_code or dispatcher.link_code_expires_at <= timezone.now():
+                dispatcher.renew_link_code()
+            self.stdout.write(f"Демо-диспетчер: /dispatcher {dispatcher.link_code} (24 часа, console)")
+        else:
+            self.stdout.write("Демо-диспетчер уже привязан к консоли")
         if not created:
             self.stdout.write("Демо-данные уже есть — пропускаю.")
             return

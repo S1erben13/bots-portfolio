@@ -121,6 +121,8 @@ def create_ticket(
     TicketStatusChange.objects.create(ticket=ticket, old_status="", new_status=ticket.status)
     for photo in photos or []:
         add_photo(ticket, photo)
+    from .dispatchers import notify_dispatchers
+    notify_dispatchers(ticket)
     log.info("Создана заявка №%s (оборудование %s)", ticket.number, equipment.code)
     return ticket
 

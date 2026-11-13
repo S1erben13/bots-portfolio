@@ -112,6 +112,7 @@ LOGGING = {
 
 # --- Приложение ---
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+PUBLIC_URL = env("PUBLIC_URL", PUBLIC_BASE_URL).rstrip("/")
 QR_TARGET = env("QR_TARGET", "landing")  # landing | telegram | max
 
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN")

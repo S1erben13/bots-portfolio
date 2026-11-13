@@ -6,7 +6,9 @@ import logging
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from asgiref.sync import sync_to_async
 
 from service.models import Messenger
 
@@ -84,6 +86,24 @@ class TelegramAdapter(MessengerAdapter):
             await message.answer("Не получилось обработать сообщение, попробуйте ещё раз.")
 
     async def _on_callback(self, callback: CallbackQuery) -> None:
+        if callback.data and callback.data.startswith("ds:"):
+            # Привязка и действия диспетчера допускаются только в личном диалоге.
+            if (callback.message is None or callback.message.chat.type != ChatType.PRIVATE
+                    or callback.message.chat.id != callback.from_user.id):
+                await callback.answer("Действие доступно только в личном диалоге", show_alert=True)
+                return
+            replies = await sync_to_async(self.engine.handle)(IncomingEvent(
+                messenger=self.messenger, user_id=str(callback.from_user.id), callback=callback.data))
+            reply = replies[0]
+            await callback.answer(reply.callback_answer, show_alert=reply.error)
+            if reply.edit:
+                try:
+                    await self.bot.edit_message_text(chat_id=callback.message.chat.id,
+                        message_id=callback.message.message_id, text=reply.text, reply_markup=keyboard(reply))
+                except TelegramBadRequest as exc:
+                    if "message is not modified" not in str(exc).lower():
+                        raise
+            return
         await callback.answer()
         chat_id = callback.message.chat.id if callback.message else callback.from_user.id
         event = IncomingEvent(

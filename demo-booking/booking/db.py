@@ -4,6 +4,26 @@ from pathlib import Path
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+    price INTEGER NOT NULL CHECK(price >= 0), active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS bakery_settings (
+    id INTEGER PRIMARY KEY CHECK(id=1), title TEXT NOT NULL,
+    pickup_address TEXT NOT NULL, daily_limit INTEGER NOT NULL CHECK(daily_limit > 0)
+);
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    product_name TEXT NOT NULL, product_price INTEGER NOT NULL,
+    starts TEXT NOT NULL, name TEXT NOT NULL, phone TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','cancelled'))
+);
+CREATE INDEX IF NOT EXISTS orders_date_status ON orders(starts,status);
+CREATE TABLE IF NOT EXISTS order_reminders (
+    booking_id INTEGER NOT NULL REFERENCES orders(id), hours INTEGER NOT NULL,
+    outbox_id INTEGER NOT NULL REFERENCES outbox(id), PRIMARY KEY(booking_id,hours)
+);
 CREATE TABLE IF NOT EXISTS services (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL,
     duration INTEGER NOT NULL CHECK(duration > 0 AND duration % 15 = 0),

@@ -4,6 +4,7 @@ services:
     ports:
       - "127.0.0.1:8030:8030"
     environment:
+      MODE: ${MODE:-salon}
       BOT_TOKEN: ${BOT_TOKEN:-}
       ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
       ADMIN_USER: ${ADMIN_USER:-admin}

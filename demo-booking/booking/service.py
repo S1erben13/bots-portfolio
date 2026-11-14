@@ -18,9 +18,15 @@ class BookingService:
         self.config = config
         self.clock = clock or config.now
         init_db(config.db_path)
+        self.bakery = None
+        if config.mode == "bakery":
+            from booking.bakery import BakeryOrders
+            self.bakery = BakeryOrders(self)
 
     def services(self):
         with connect(self.config.db_path) as conn:
+            if self.bakery:
+                return conn.execute("SELECT *, 15 AS duration FROM products WHERE active=1 ORDER BY id").fetchall()
             return conn.execute("SELECT * FROM services WHERE active=1 ORDER BY id").fetchall()
 
     def masters(self):
@@ -31,6 +37,8 @@ class BookingService:
         return [self.clock().date() + timedelta(days=i) for i in range(14)]
 
     def _slots(self, conn, service_id, master_id, day, exclude=None):
+        if self.bakery:
+            return self.bakery.slots(conn, service_id, day, exclude)
         if day not in self.dates():
             return []
         service = conn.execute("SELECT * FROM services WHERE id=? AND active=1", (service_id,)).fetchone()
@@ -86,6 +94,8 @@ class BookingService:
             cursor += timedelta(minutes=15)
 
     def book(self, user_id, service_id, master_id, starts, name, phone):
+        if self.bakery:
+            return self.bakery.book(user_id, service_id, starts, name, phone)
         name = name.strip()
         phone = re.sub(r"[\s()\-]", "", phone)
         if not 2 <= len(name) <= 100:
@@ -115,6 +125,8 @@ class BookingService:
             return bid
 
     def bookings(self, user_id=None, day=None, days=1):
+        if self.bakery:
+            return self.bakery.bookings(user_id, day, days)
         sql = """SELECT b.*, s.name AS service, m.name AS master FROM bookings b
                  JOIN services s ON s.id=b.service_id JOIN masters m ON m.id=b.master_id WHERE 1=1"""
         params = []
@@ -148,6 +160,8 @@ class BookingService:
             conn.execute("DELETE FROM outbox WHERE id=?", (row[0],))
 
     def cancel(self, booking_id, user_id=None):
+        if self.bakery:
+            return self.bakery.cancel(booking_id, user_id)
         with connect(self.config.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = self._editable(conn, booking_id, user_id)
@@ -157,6 +171,8 @@ class BookingService:
             self._notify(conn, f"Отмена записи №{booking_id}, {row['starts']}, {row['name']}.")
 
     def reschedule(self, booking_id, user_id, master_id, starts):
+        if self.bakery:
+            return self.bakery.reschedule(booking_id, user_id, starts)
         with connect(self.config.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = self._editable(conn, booking_id, user_id)
@@ -178,6 +194,8 @@ class BookingService:
             self._notify(conn, f"Перенос записи №{booking_id}: {row['starts']} → {starts}.")
 
     def queue_reminders(self):
+        if self.bakery:
+            return self.bakery.queue_reminders()
         now = self.clock()
         with connect(self.config.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -199,3 +217,8 @@ class BookingService:
                         body = f"Напоминание ({hours} ч): запись №{row['id']} на {row['starts']}."
                         out = conn.execute("INSERT INTO outbox(chat_id,body) VALUES (?,?)", (str(row["user_id"]), body))
                         conn.execute("INSERT INTO reminders VALUES (?,?,?)", (row["id"], hours, out.lastrowid))
+
+    def confirm(self, booking_id):
+        if not self.bakery:
+            raise BookingError("Подтверждение доступно только для заказов.")
+        return self.bakery.confirm(booking_id)

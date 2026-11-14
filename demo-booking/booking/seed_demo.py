@@ -6,6 +6,17 @@ def seed_demo(config=settings):
     init_db(config.db_path)
     with connect(config.db_path) as conn:
         conn.execute("BEGIN IMMEDIATE")
+        if config.mode == "bakery":
+            conn.execute("INSERT OR IGNORE INTO bakery_settings VALUES (1,?,?,10)",
+                         ("Сахарный декабрь", "Демо-адрес: ул. Примерная, д. 1 (уточните у продавца)"))
+            if not conn.execute("SELECT 1 FROM products LIMIT 1").fetchone():
+                conn.executemany("INSERT INTO products(name,description,price) VALUES (?,?,?)", [
+                    ("Пряничный набор", "Тестовый набор расписных пряников", 900),
+                    ("Бенто-торт", "Небольшой тестовый торт", 1600),
+                    ("Капкейки", "Тестовый набор из шести капкейков", 1200),
+                    ("Печенье", "Подарочная коробка тестового печенья", 700),
+                ])
+            return
         if conn.execute("SELECT 1 FROM services LIMIT 1").fetchone():
             return
         conn.executemany("INSERT INTO services(id,name,duration) VALUES (?,?,?)", [

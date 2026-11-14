@@ -36,13 +36,17 @@ def create_app(service):
         return f'<input name="{name}" type="{kind}" value="{escape(str(value), quote=True)}" {extra}>'
 
     def page(body):
+        heading = '<h1>Онлайн-запись</h1><nav><a href="/admin">Записи</a> · <a href="/admin/catalog">Услуги, мастера и расписание</a></nav>'
+        if service.bakery:
+            body = '<p>' + escape(service.bakery.settings()["title"]) + '</p>' + body
+            heading = '<h1>Кондитерская</h1><nav><a href="/admin">Заказы</a> · <a href="/admin/catalog">Товары и настройки</a></nav>'
         return HTMLResponse('''<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Онлайн-запись — админка</title>
 <style>body{font:16px system-ui;max-width:1200px;margin:32px auto;padding:0 16px;color:#16312e;background:#f6f8f7}
 table{border-collapse:collapse;width:100%;background:white}td,th{border:1px solid #ccd8d4;padding:10px;text-align:left}
 input,select,button{font:inherit;margin:4px;padding:7px;max-width:95%}button{cursor:pointer}form{display:inline-block}
 h1,h2{color:#174d42}.scroll{overflow:auto}small{display:block}a{color:#126b55}</style>
-<h1>Онлайн-запись</h1><nav><a href="/admin">Записи</a> · <a href="/admin/catalog">Услуги, мастера и расписание</a></nav>''' + body + '</html>', headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY"})
+''' + heading + body + '</html>', headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY"})
 
     @app.get("/health")
     def health():
@@ -53,7 +57,22 @@ h1,h2{color:#174d42}.scroll{overflow:auto}small{display:block}a{color:#126b55}</
         day = day or service.clock().date()
         body = f'<h2>Записи с {day} ({days} дн.)</h2><form><input name="day" type="date" value="{day}"><select name="days"><option value="1">День</option><option value="7">Неделя</option></select><button>Показать</button></form>'
         body += '<div class="scroll"><table><tr><th>№ / время</th><th>Услуга / мастер</th><th>Клиент</th><th>Статус</th><th>Действия</th></tr>'
+        if service.bakery:
+            body = body.replace("Записи с", "Заказы с").replace("Услуга / мастер", "Товар / цена")
+            settings = service.bakery.settings()
+            body = f'<p>Лимит на дату: {settings["daily_limit"]}. Самовывоз: {escape(settings["pickup_address"])}</p>' + body
         for row in service.bookings(day=day, days=days):
+            if service.bakery:
+                labels = {"pending": "Ожидает подтверждения", "confirmed": "Подтверждён", "cancelled": "Отменён"}
+                body += (f"<tr><td>{row['id']}<br>{escape(row['starts'].replace('T', ' '))}</td>"
+                         f"<td>{escape(row['product_name'])}<br>{row['product_price']} ₽ · 1 шт.</td>"
+                         f"<td>{escape(row['name'])}<br>{escape(row['phone'])}</td><td>{labels[row['status']]}</td><td>")
+                if row["status"] == "pending":
+                    body += form("booking", hidden("id", row["id"]) + hidden("status", "confirmed"), "Подтвердить")
+                if row["status"] in ("pending", "confirmed"):
+                    body += form("booking", hidden("id", row["id"]) + hidden("status", "cancelled"), "Отменить")
+                body += "</td></tr>"
+                continue
             body += f"<tr><td>{row['id']}<br>{escape(row['starts'].replace('T', ' '))}</td><td>{escape(row['service'])}<br>{escape(row['master'])}</td><td>{escape(row['name'])}<br>{escape(row['phone'])}</td><td>{STATUS[row['status']]}</td><td>"
             if row["status"] == "confirmed":
                 for status in ("cancelled", "attended", "absent"):
@@ -63,6 +82,23 @@ h1,h2{color:#174d42}.scroll{overflow:auto}small{display:block}a{color:#126b55}</
 
     @app.get("/admin/catalog", dependencies=[Depends(auth)])
     def catalog():
+        if service.bakery:
+            settings = service.bakery.settings()
+            body = '<h2>Кондитерская: настройки</h2><p>Цена в целых рублях. Один товар, одна единица на заказ. Выдача ежедневно 09:00–18:00 с шагом 15 минут.</p>'
+            fields = 'Название: ' + field("title", settings["title"], extra='required maxlength="100"')
+            fields += 'Самовывоз: ' + field("pickup_address", settings["pickup_address"], extra='required maxlength="500"')
+            fields += 'Лимит на дату: ' + field("daily_limit", settings["daily_limit"], "number", 'min="1" max="10000" required')
+            body += form("bakery_settings", fields) + '<h2>Товары</h2><p>Активен: 1 — да, 0 — архив. Изменения каталога не меняют состав и цену старых заказов.</p>'
+            with connect(service.config.db_path) as conn:
+                products = conn.execute("SELECT * FROM products ORDER BY id").fetchall()
+            for row in [*products, None]:
+                fields = hidden("id", row["id"]) if row else ""
+                fields += field("name", row["name"] if row else "", extra='placeholder="Название" required maxlength="100"')
+                fields += field("description", row["description"] if row else "", extra='placeholder="Описание" maxlength="2000"')
+                fields += field("price", row["price"] if row else 900, "number", 'min="0" max="10000000" required')
+                fields += field("active", row["active"] if row else 1, "number", 'min="0" max="1" required')
+                body += '<div>' + form("product", fields, "Сохранить" if row else "Добавить") + '</div>'
+            return page(body)
         body = '<h2>Услуги</h2><p>Длительность кратна 15 минутам. Удаление архивирует запись и сохраняет историю.</p>'
         for row in service.services():
             fields = hidden("id", row["id"]) + field("name", row["name"], extra='required maxlength="100"')
@@ -106,7 +142,9 @@ h1,h2{color:#174d42}.scroll{overflow:auto}small{display:block}a{color:#126b55}</
                 status = str(data["status"])
                 if status == "cancelled":
                     service.cancel(bid)
-                elif status in ("attended", "absent"):
+                elif status == "confirmed" and service.bakery:
+                    service.confirm(bid)
+                elif status in ("attended", "absent") and not service.bakery:
                     with connect(service.config.db_path) as conn:
                         cursor = conn.execute("UPDATE bookings SET status=? WHERE id=? AND status='confirmed'", (status, bid))
                         if not cursor.rowcount:
@@ -116,7 +154,37 @@ h1,h2{color:#174d42}.scroll{overflow:auto}small{display:block}a{color:#126b55}</
                 return RedirectResponse("/admin", status_code=303)
             with connect(service.config.db_path) as conn:
                 conn.execute("BEGIN IMMEDIATE")
-                if action in ("service", "master"):
+                if service.bakery and action not in ("product", "bakery_settings"):
+                    raise BookingError("Недоступно в режиме кондитерской.")
+                if not service.bakery and action in ("product", "bakery_settings"):
+                    raise BookingError("Недоступно в режиме салона.")
+                if action == "bakery_settings":
+                    title = str(data["title"]).strip()
+                    address = str(data["pickup_address"]).strip()
+                    limit = int(data["daily_limit"])
+                    if not 2 <= len(title) <= 100 or not 2 <= len(address) <= 500 or not 1 <= limit <= 10000:
+                        raise BookingError("Проверьте название, адрес и лимит (1–10000).")
+                    peak = conn.execute("""SELECT count(*) AS total FROM orders
+                        WHERE status IN ('pending','confirmed') AND starts>=?
+                        GROUP BY substr(starts,1,10) HAVING count(*)>? LIMIT 1""",
+                        (str(service.clock().date()), limit)).fetchone()
+                    if peak:
+                        raise BookingError("Лимит ниже числа активных заказов на одну из дат. Сначала отмените лишние заказы.")
+                    conn.execute("UPDATE bakery_settings SET title=?,pickup_address=?,daily_limit=? WHERE id=1", (title, address, limit))
+                elif action == "product":
+                    name = str(data["name"]).strip()
+                    description = str(data.get("description", "")).strip()
+                    price, active = int(data["price"]), int(data.get("active", "1"))
+                    if not 2 <= len(name) <= 100 or len(description) > 2000 or not 0 <= price <= 10000000 or active not in (0, 1):
+                        raise BookingError("Проверьте название, описание, цену и активность товара.")
+                    if data.get("id"):
+                        result = conn.execute("UPDATE products SET name=?,description=?,price=?,active=? WHERE id=?",
+                                             (name, description, price, active, int(data["id"])))
+                        if not result.rowcount:
+                            raise BookingError("Товар не найден.")
+                    else:
+                        conn.execute("INSERT INTO products(name,description,price,active) VALUES (?,?,?,?)", (name, description, price, active))
+                elif action in ("service", "master"):
                     name = str(data["name"]).strip()
                     if not 2 <= len(name) <= 100:
                         raise BookingError("Название должно содержать 2–100 символов.")

@@ -13,15 +13,19 @@ class Dialog:
 
     def choose_service(self, service_id):
         if service_id not in [row["id"] for row in self.service.services()]:
-            raise BookingError("Выберите доступную услугу.")
+            raise BookingError("Выберите доступный товар." if self.service.bakery else "Выберите доступную услугу.")
         self.data = {"service_id": service_id}
-        self.step = "master"
+        self.step = "date" if self.service.bakery else "master"
+        if self.service.bakery:
+            self.data["master_id"] = 0
 
     def move(self, booking):
         if booking["user_id"] != self.user_id:
             raise BookingError("Запись не найдена.")
         self.data = {"service_id": booking["service_id"], "booking_id": booking["id"]}
-        self.step = "master"
+        self.step = "date" if self.service.bakery else "master"
+        if self.service.bakery:
+            self.data.update(master_id=0, product_name=booking["product_name"], product_price=booking["product_price"])
 
     def choose_master(self, master_id):
         if self.step != "master":
@@ -33,10 +37,12 @@ class Dialog:
 
     def choose_date(self, day):
         if self.step != "date":
-            raise BookingError("Сначала выберите мастера.")
+            raise BookingError("Сначала выберите товар." if self.service.bakery else "Сначала выберите мастера.")
         day = date.fromisoformat(day)
         if day not in self.service.dates():
             raise BookingError("Выберите дату из календаря.")
+        if self.service.bakery and self.service.bakery.full(day, self.data.get("booking_id")):
+            raise BookingError("На эту дату лимит заказов исчерпан. Выберите другую дату.")
         self.data["day"] = day
         self.step = "slot"
         return self.slots()
@@ -69,6 +75,16 @@ class Dialog:
 
     def summary(self):
         slot = self.data["slot"]
+        if self.service.bakery:
+            if self.data.get("booking_id"):
+                title, price = self.data["product_name"], self.data["product_price"]
+            else:
+                product = next((row for row in self.service.services() if row["id"] == self.data["service_id"]), None)
+                if product is None:
+                    raise BookingError("Товар больше недоступен. Начните заказ заново.")
+                title, price = product["name"], product["price"]
+            address = self.service.bakery.settings()["pickup_address"]
+            return f"{title} — {price} ₽ · 1 шт.\nВыдача: {slot['starts'].replace('T', ' ')}\nСамовывоз: {address}"
         title = next((row["name"] for row in self.service.services() if row["id"] == self.data["service_id"]), None)
         if title is None:
             raise BookingError("Услуга больше недоступна. Начните запись заново.")
